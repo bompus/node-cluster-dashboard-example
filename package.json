@@ -1,0 +1,15 @@
+{
+	"name": "node-cluster-dashboard-example",
+	"version": "0.1.0",
+	"author": {
+		"name": "Aaron Queen"
+	},
+	"description": "Node.js example to see if I can make cluster master dashboard with worker stats, graceful restart/reload, up/down worker scaling",
+	"main": "./master.js",
+	"dependencies": {
+		"fastify": "^0.26.1",
+		"flowly": "^1.0.0",
+		"neo-async": "^2.3.0"
+	},
+	"license": "MIT"
+}
