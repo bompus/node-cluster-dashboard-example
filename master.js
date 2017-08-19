@@ -139,6 +139,8 @@ app.get("/", (req, reply) => {
 		reply.type("text/html");
 		return reply.send(html);
 	});
+	
+	return;
 });
 
 app.get("/status_ajax/", (req, reply) => {
