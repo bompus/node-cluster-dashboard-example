@@ -10,14 +10,14 @@
 				font-family: 'Open Sans', sans-serif;
 				background-color: #242B30;
     			color: #fff;
-				font-size: 14px;
+				font-size: 12px;
 			}
 			a {
 				text-decoration: none;
 			}
 			#actions { width:1500px; margin:0 auto; margin-bottom:15px; text-align:center; }
 			#actions .button {
-				font-size: 14px;
+				font-size: 12px;
 				padding: 1px 5px;
 				line-height: 1.5;
 				cursor: pointer;
@@ -43,16 +43,18 @@
 				box-shadow: 0px 0px 1px #ccc;
 				padding: 15px;
 			}
+			.blackbox #numWorkers { margin-right: 10px; font-size:14px; vertical-align:middle; }
 			.blackbox .section {
 				background-color: #1B2228;
 				border-right: 1px solid rgba(0,0,0,.8);
 				border-bottom: 1px solid rgba(0,0,0,.8);
 				box-shadow: 0px 0px 1px #ccc;
-				padding: 15px;
+				padding: 5px 15px 5px 15px;
 			}
 			.blackbox .section h2 { margin:0 0 5px 0; }
 			.blackbox .section .text {
-				width: 200px;
+				width: 185px;
+				margin-right: 15px;
 				text-align: center;
 				vertical-align: top;
 			}
@@ -62,7 +64,7 @@
 				font-style: normal;
 			}
 			.blackbox .section .chartBox {
-				margin: 0 15px 0 15px;
+				margin-right: 15px;
 				text-align: center;
 			}
 			.blackbox .section .chartBox > div {
@@ -71,19 +73,20 @@
 			.blackbox .section .chartBox > div.myText {
 				margin-top: 5px;
 				color: rgb(235, 156, 54);
-				font-size: 16px;
+				font-size: 14px;
 			}
 		</style>
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-		<script src="https://www.gstatic.com/charts/loader.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/zingchart/2.6.1/zingchart.min.js"></script>
 	</head>
 	<body style="padding:30px;">
 		<div class="blackbox">
 			<div id="actions">
+				<span id="numWorkers">0 workers</span>
 				<span class="button" data-alt-onclick="startPoll();" data-alt-label="Start Polling" onclick="stopPoll(); altSwitch(this);">Stop Polling</span>&nbsp;&nbsp;
-				<span class="button" onclick="scale('+1');">Scale Up</span>&nbsp;&nbsp;
-				<span class="button" onclick="scale('-1');">Scale Down</span>&nbsp;&nbsp;
-				<span class="button" onclick="reload();">Reload Workers</span>&nbsp;&nbsp;
+				<span class="button scaler" onclick="scale('+1');">Scale Up</span>&nbsp;&nbsp;
+				<span class="button scaler" onclick="scale('-1');">Scale Down</span>&nbsp;&nbsp;
+				<span class="button scaler" onclick="reload();">Reload Workers</span>&nbsp;&nbsp;
 			</div>
 
 			<div id="workers"></div>
@@ -110,9 +113,9 @@
 			};
 
 			function altSwitch(t) {
-				var t = $(t);
-				var click = t.attr("data-alt-onclick") + " altSwitch(this);";
-				var label = t.attr("data-alt-label");
+				const t = $(t);
+				const click = t.attr("data-alt-onclick") + " altSwitch(this);";
+				const label = t.attr("data-alt-label");
 				t.attr("data-alt-onclick", t.attr("onclick"));
 				t.attr("data-alt-label", t.html());
 				setTimeout(() => {
@@ -120,40 +123,63 @@
 				}, 0);
 			};
 
+			window.zingFeed = function(cb, chart) {
+				const tmp = chart.id.split("_");
+				const worker = tmp[1];
+				const chartNum = tmp[2];
+				const chartInfo = chartIdx[worker];
+
+				$(window).one("tickUpdated", function() {
+					const tickDataColumn = chartInfo[`myChart${chartNum}`].tickDataColumn;
+
+					const tick = {
+						plot0: chartInfo.tickData[tickDataColumn]
+					};
+
+					return cb(JSON.stringify(tick));
+				});
+			};
+
 			function createChart(args) {
-				args.columns.push({
-					type : "string",
-					role : "tooltip",
-					calc : (dt, row) => {
-						return dt.getFormattedValue(row, args.columns[1]);
+				const chartData = {
+					type: "line",
+					plot : { aspect: "spline" },
+					plotarea: { margin: "5 0 25 30" },
+					"background-color" : "transparent",
+					"scale-x" : { visible: false, values : [] },
+					series : [{
+						"line-color" : args.color,
+						"line-width" : 1,
+						marker : { visible : false },
+						values : []
+					}],
+					refresh : {
+						type : "feed",
+						transport : "js",
+						url : "zingFeed()",
+						interval : 100,
+						"max-ticks" : 120,
+						"adjust-scale" : true
 					}
+				};
+
+				const chart = zingchart.render({
+					id: args.containerId,
+					data: chartData,
+					height: 100,
+					width: 235
 				});
 
-				const chartArgs = {
-					chartType : "LineChart",
+				return {
+					tickDataColumn : args.tickDataColumn,
 					containerId : args.containerId,
-					options : {
-						series : { 0 : { color : args.color } },
-						width : 220, height : 60,
-						chartArea : { width : 220, height : 60, left : 0, top : 0, bottom : 0, right: 0, },
-						backgroundColor : "transparent",
-						hAxis : { textPosition : "none" },
-						vAxis : { textPosition : "none", gridlines : { color : "transparent" }, viewWindow : { min : 0 } },
-						legend : { position : "none" },
-						tooltip : { trigger : "selection" }
-					},
-					view : { "columns" : args.columns }
-				}; 
-
-				const chart = new google.visualization.ChartWrapper(chartArgs);
-				chart.setDataTable(args.data);
-				chart.draw();
-
-				return chart;
+					title : args.title,
+					chart : chart
+				};
 			};
 
 			function initWorker(stats) {
-				var toAppend = `
+				const toAppend = `
 					<div id="container_${stats.worker}" class="containerWorker section" data-worker="${stats.worker}">
 						<div class="text"></div>
 						<div class="chartBox">
@@ -198,79 +224,53 @@
 				recentWorker = stats.worker;
 
 				const div = workersDiv.find(`#container_${stats.worker}`);
-
-				const data = new google.visualization.DataTable();
-				data.addColumn("string", "Tick");
-				data.addColumn("number", "HTTP Req/s");
-				data.addColumn("number", "HTTP Avg Response Time");
-				data.addColumn("number", "Event Loop Lag");
-				data.addColumn("number", "Event Loop Lag/s %");
-				data.addColumn("number", "Resident Memory");
 				
 				const myChart0 = createChart({
 					containerId : `myChart_${stats.worker}_0`,
 					title : "HTTP Req/s",
 					color : chartColors.blue,
-					columns : [0, 1],
-					data : data
+					tickDataColumn : 1
 				});
 
 				const myChart1 = createChart({
 					containerId : `myChart_${stats.worker}_1`,
 					title : "HTTP Avg Response Time",
 					color : chartColors.blue,
-					columns : [0, 2],
-					data : data
+					tickDataColumn : 2
 				});
 
 				const myChart2 = createChart({
 					containerId : `myChart_${stats.worker}_2`,
 					title : "Event Loop Lag",
 					color : chartColors.blue,
-					columns : [0, 3],
-					data : data
+					tickDataColumn : 3
 				});
 				
 				const myChart3 = createChart({
 					containerId : `myChart_${stats.worker}_3`,
 					title : "Event Loop Lag/s  %",
 					color : chartColors.blue,
-					columns : [0, 4],
-					data : data
+					tickDataColumn : 4
 				});
 
 				const myChart4 = createChart({
 					containerId : `myChart_${stats.worker}_4`,
 					title : "Resident Memory",
 					color : chartColors.blue,
-					columns : [0, 5],
-					data : data
+					tickDataColumn : 5
 				});
 
-				function syncSelection(selection) {
-					var mySelection = (selection === null) ? null: [selection] ;
-					myChart0.getChart().setSelection(mySelection);
-					myChart1.getChart().setSelection(mySelection);
-					myChart2.getChart().setSelection(mySelection);
-					myChart3.getChart().setSelection(mySelection);
-					myChart4.getChart().setSelection(mySelection);
-				};
-
-				function onReady(chartWrapper) {
-					google.visualization.events.addListener(chartWrapper, "ready", () => {
-						google.visualization.events.addListener(chartWrapper.getChart(), "onmouseover", syncSelection);
-						google.visualization.events.addListener(chartWrapper.getChart(), "onmouseout", () => syncSelection(null));
-					});
-				};
-
-				onReady(myChart0);
-				onReady(myChart1);
-				onReady(myChart2);
-				onReady(myChart3);
-				onReady(myChart4);
+				// function syncSelection(selection) {
+				// 	const  mySelection = (selection === null) ? null: [selection] ;
+				// 	myChart0.getChart().setSelection(mySelection);
+				// 	myChart1.getChart().setSelection(mySelection);
+				// 	myChart2.getChart().setSelection(mySelection);
+				// 	myChart3.getChart().setSelection(mySelection);
+				// 	myChart4.getChart().setSelection(mySelection);
+				// };
 
 				chartIdx[stats.worker] = {
-					data : data,
+					tickData : [],
 					myChart0 : myChart0,
 					myChart1 : myChart1,
 					myChart2 : myChart2,
@@ -293,13 +293,29 @@
 
 				return rtn + (stats.stopping === true ? `<br /><span class="alert">SHUTTING DOWN</span>` : "");
 			};
+
+			function scaleReloadStart() {
+				$(".button.scaler").css("visibility", "hidden");
+			};
+
+			function scaleReloadDone() {
+				$(".button.scaler").css("visibility", "visible");
+				startPoll();
+			};
+
+			function xhrFail(xhr) {
+				alert(xhr.responseJSON ? xhr.responseJSON.message : xhr.responseText);
+				scaleReloadDone();
+			};
 			
 			function scale(scaleTo) {
-				$.get(`./scale/${scaleTo}/`, startPoll);
+				scaleReloadStart();
+				$.get(`./scale/${scaleTo}/`, scaleReloadDone).fail(xhrFail);
 			};
 
 			function reload() {
-				$.get(`./reload/`, startPoll);
+				scaleReloadStart();
+				$.get(`./reload/`, scaleReloadDone).fail(xhrFail);
 			};
 			
 			function poll() {
@@ -319,6 +335,8 @@
 							$(`#container_${worker}`).remove();
 						}
 					});
+
+					$("#numWorkers").html(`${data.stats.length} workers`);
 				
 					data.stats.forEach((stats) => {
 						let div = $(`#container_${stats.worker}`);
@@ -349,41 +367,29 @@
 						}
 
 						const chart = chartIdx[stats.worker];
-						
-						const numRows = chart.data.getNumberOfRows();
-						if (numRows > 120) {
-							chart.data.removeRow(0);
-						}
 
 						const simplified = {
-							unixTs : Math.floor(stats.date / 1000).toString(),
+							unixTs : Math.floor(stats.lastping / 1000),
 							rss : Number((stats.total.memory.rss / 1024 / 1024).toFixed(1))
 						};
-						
-						chart.data.addRow([
+
+						chart.tickData = [
 							simplified.unixTs,
 							stats.perSecond.httpReqs,
 							stats.perSecond.httpResponseTimeMs,
 							stats.perSecond.eventLoopLagMs,
 							stats.perSecond.eventLoopLagPct,
 							simplified.rss
-						]);
+						];
 
 						myText["0"].html(stats.perSecond.httpReqs.toFixed(2));
-						chart.myChart0.draw();
-
 						myText["1"].html(stats.perSecond.httpResponseTimeMs.toFixed(2) + "ms");
-						chart.myChart1.draw();
-
 						myText["2"].html(stats.perSecond.eventLoopLagMs.toFixed(2) + "ms");
-						chart.myChart2.draw();
-
 						myText["3"].html(stats.perSecond.eventLoopLagPct.toFixed(2) + "%");
-						chart.myChart3.draw();
-
 						myText["4"].html(simplified.rss.toFixed(1) + " MB");
-						chart.myChart4.draw();
 					});
+
+					$(window).trigger("tickUpdated");
 				
 					poller = setTimeout(poll, 1000);
 				}).fail(() => {
@@ -391,8 +397,7 @@
 				});
 			};
 
-			google.charts.load("current");
-			google.charts.setOnLoadCallback(startPoll);
+			startPoll();
 		</script>
 	</body>
 </html>

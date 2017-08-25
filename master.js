@@ -13,11 +13,12 @@ const fs = require("fs");
 const os = require("os");
 
 const info = {
-	numWorkers : os.cpus().length,
-	currentWorkers : [],
-	listeningWorkers : [],
-	ignoreExitingWorkers : [],
-	stats : {}
+	numWorkers: os.cpus().length,
+	currentWorkers: [],
+	listeningWorkers: [],
+	ignoreExitingWorkers: [],
+	scaleInProgress : false,
+	stats: {}
 };
 
 function stopWorker(oldWorker, cb) {
@@ -46,20 +47,32 @@ function stopWorker(oldWorker, cb) {
 	
 	t1 = setTimeout(() => {
 		console.log(`stopWorker - old worker ${oldWorker.id} (${oldWorker.process.pid}) still alive after 15s, forcefully exiting`);
-		oldWorker.kill();
-	}, 15000);
+		oldWorker.kill("SIGKILL");
+	}, 15000).unref();
 };
 
 function scale(newWorkersTotal, cb) {
+	console.log(`scale`, "scaleInProgress=", info.scaleInProgress);
+	if (info.scaleInProgress === true) {
+		return cb("There is a scale or reload action already in progress. Try again later.");
+	}
+
+	info.scaleInProgress = true;
+
 	const oldWorkersTotal = info.numWorkers;
 	const diff = newWorkersTotal - oldWorkersTotal;
+
+	function done(err) {
+		info.scaleInProgress = false;		
+		return cb(err);
+	};
 	
 	if (diff > 0) {
-		return scaleUp(diff, cb);
+		return scaleUp(diff, done);
 	} else if (diff < 0) {
-		return scaleDown(Math.abs(diff), cb);
+		return scaleDown(Math.abs(diff), done);
 	} else {
-		return cb(null);
+		return done(null);
 	}
 };
 
@@ -68,7 +81,7 @@ function scaleUp(forkNum, cb) {
 	
 	const allowed = (newNumWorkers <= 20) ? "allowed" : "over_limit";
 	console.log(`scaleUp - from ${info.numWorkers} to ${newNumWorkers} - ${allowed}`);
-	if (allowed === "over_limit") { return; }
+	if (allowed === "over_limit") { return cb("You can not scale higher than 20 workers."); }
 
 	info.numWorkers = newNumWorkers;
 	
@@ -85,7 +98,7 @@ function scaleDown(killNum, cb) {
 	
 	const allowed = (newNumWorkers >= 1) ? "allowed" : "over_limit";
 	console.log(`scaleDown - from ${info.numWorkers} to ${newNumWorkers} - ${allowed}`);
-	if (allowed === "over_limit") { return; }
+	if (allowed === "over_limit") { return cb("You can not scale lower than 1 worker."); }
 	
 	info.numWorkers = newNumWorkers;
 	
@@ -98,13 +111,21 @@ function scaleDown(killNum, cb) {
 };
 
 function reload(cb) {
-	console.log(`reload`);
+	console.log("reload", "scaleInProgress=", info.scaleInProgress);
+	if (info.scaleInProgress === true) {
+		return cb("There is a scale or reload action already in progress. Try again later.");
+	}
 	
+	info.scaleInProgress = true;
+
 	const oldWorkers = info.currentWorkers.slice();
 	async.eachSeries(oldWorkers, (oldWorker, cb) => {
 		const newWorker = cluster.fork();
 		newWorker.on("listening", () => stopWorker(oldWorker, cb));
-	}, cb);
+	}, (err) => {
+		info.scaleInProgress = false;
+		return cb(err);
+	});
 	
 	return;
 };
@@ -116,7 +137,7 @@ function status_ajax(cb) {
 		statsArr.push(info.stats[key]);
 	});
 	
-	return cb(null, { stats : statsArr });
+	return cb(null, { stats: statsArr });
 };
 
 function replyErr(reply, err) {
@@ -124,7 +145,7 @@ function replyErr(reply, err) {
 };
 
 const app = fastify({
-	// logger : { level : "error" }
+	// logger: { level: "error" }
 });
 
 app.addHook("onRequest", (req, res, next) => {
@@ -157,7 +178,7 @@ app.get("/reload/", (req, reply) => {
 	reload((err) => {
 		if (err) { return replyErr(reply, err); }
 		
-		return reply.send({ success : true });
+		return reply.send({ success: true });
 	});
 	
 	return;
@@ -179,7 +200,7 @@ app.get("/scale/:scaleTo/", (req, reply) => {
 	scale(newWorkersTotal, (err) => {
 		if (err) { return replyErr(reply, err); }
 		
-		return reply.send({ success : true, oldWorkersTotal : oldWorkersTotal, newWorkersTotal : info.numWorkers });
+		return reply.send({ success: true, oldWorkersTotal: oldWorkersTotal, newWorkersTotal: info.numWorkers });
 	});
 	
 	return;
@@ -194,14 +215,14 @@ app.listen(9998, "127.0.0.1", (err) => {
 	cluster.setupMaster({
 		exec: "worker.js",
 		// we inject our worker stats monitoring
-		execArgv : ["-r", "./inject.js"]
+		execArgv: ["-r", "./inject.js"]
 	});
 	
 	cluster.on("fork", (worker) => {
 		info.stats[worker.id] = {
-			worker : worker.id,
-			lastping : undefined,
-			stopping : false
+			worker: worker.id,
+			lastping: undefined,
+			stopping: false
 		};
 		info.currentWorkers.push(worker);
 		
@@ -253,7 +274,7 @@ app.listen(9998, "127.0.0.1", (err) => {
 			workerStats.perSecond.eventLoopLagPct = 100;
 		});
 
-		setTimeout(highLagCheck, 100);
+		setTimeout(highLagCheck, 100).unref();
 	};
 
 	highLagCheck();
