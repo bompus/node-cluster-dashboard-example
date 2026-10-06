@@ -7,7 +7,7 @@
 	"description": "Node.js example to see if I can make cluster master dashboard with worker stats, graceful restart/reload, up/down worker scaling",
 	"main": "./master.js",
 	"dependencies": {
-		"fastify": "^0.26.1",
+		"fastify": "^5.12.5",
 		"flowly": "^1.0.0",
 		"neo-async": "^2.3.0"
 	},
